@@ -8,7 +8,4 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
-  - enabled: 1
-    path: Assets/Easy Tags/Demo/Better Tags Demo.unity
-    guid: 5facd8cfdbf04eb41becdbc26bc68939
   m_configObjects: {}
