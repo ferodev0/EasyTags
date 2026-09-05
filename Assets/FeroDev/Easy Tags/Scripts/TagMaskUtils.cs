@@ -7,7 +7,7 @@ using UnityEngine.SceneManagement;
 
 /**
  * TagMaskUtils is a static class to let you use TagMask Utility Functions globally
- * This class includes the all the functions to utilize MultipleTags usage like finding game objects and comparing tags
+ * This class includes all the functions to utilize MultipleTags usage like finding game objects and comparing tags
  * 
  * @author (FeroDev)
  * @version 1.0
@@ -63,25 +63,26 @@ namespace EasyTags
         {
             int maskValue = tagMask.Mask;
 
-            // Register for exact matches
-            if (!_objectsByExactMask.ContainsKey(maskValue))
+            // Register for exact matches (TryGetValue = one dictionary lookup instead of ContainsKey + indexer)
+            if (!_objectsByExactMask.TryGetValue(maskValue, out HashSet<GameObject> exactSet))
             {
-                _objectsByExactMask[maskValue] = new HashSet<GameObject>();
+                exactSet = new HashSet<GameObject>();
+                _objectsByExactMask[maskValue] = exactSet;
             }
-            _objectsByExactMask[maskValue].Add(obj);
+            exactSet.Add(obj);
 
             // Register for partial matches
             string[] tags = tagMask.GetSelectedTags();
             foreach (string tag in tags)
             {
-                if (!_objectsByIndividualTag.ContainsKey(tag))
+                if (!_objectsByIndividualTag.TryGetValue(tag, out HashSet<GameObject> tagSet))
                 {
-                    _objectsByIndividualTag[tag] = new HashSet<GameObject>();
+                    tagSet = new HashSet<GameObject>();
+                    _objectsByIndividualTag[tag] = tagSet;
                 }
-                _objectsByIndividualTag[tag].Add(obj);
+                tagSet.Add(obj);
             }
         }
-
 
         /// <summary>
         /// Unregisters a game object with a TagMask from the cache
@@ -93,13 +94,13 @@ namespace EasyTags
             int maskValue = tagMask.Mask;
 
             // Unregister from exact matches
-            if (_objectsByExactMask.ContainsKey(maskValue))
+            if (_objectsByExactMask.TryGetValue(maskValue, out HashSet<GameObject> exactSet))
             {
                 // Remove the game object from the HashSet
-                _objectsByExactMask[maskValue].Remove(obj);
+                exactSet.Remove(obj);
 
                 // Optionally remove the HashSet entry if no objects are left
-                if (_objectsByExactMask[maskValue].Count == 0)
+                if (exactSet.Count == 0)
                 {
                     _objectsByExactMask.Remove(maskValue);
                 }
@@ -109,11 +110,11 @@ namespace EasyTags
             string[] tags = tagMask.GetSelectedTags();
             foreach (string tag in tags)
             {
-                if (_objectsByIndividualTag.ContainsKey(tag))
+                if (_objectsByIndividualTag.TryGetValue(tag, out HashSet<GameObject> tagSet))
                 {
-                    _objectsByIndividualTag[tag].Remove(obj);
+                    tagSet.Remove(obj);
                     // Optionally remove the tag entry if no objects are left
-                    if (_objectsByIndividualTag[tag].Count == 0)
+                    if (tagSet.Count == 0)
                     {
                         _objectsByIndividualTag.Remove(tag);
                     }
@@ -126,6 +127,21 @@ namespace EasyTags
         #region Getting Selected Tags Functions
         // These functions get the selected tags in a TagMask and return them in an array of strings.
 
+        // Cached copy of Unity's tag list. Without this, UnityEditorInternal.InternalEditorUtility.tags
+        // gets re-fetched on every single call made anywhere in this class (nearly every method funnels
+        // through GetSelectedTags or the mask-editing functions below).
+        private static string[] _cachedAllTags;
+        private static string[] AllTags => _cachedAllTags ??= UnityEditorInternal.InternalEditorUtility.tags;
+
+        /// <summary>
+        /// Clears the cached tag list, forcing it to be re-read from Unity's Tag Manager on the next call.
+        /// Call this if tags are added/removed/renamed while the cache may already be populated.
+        /// </summary>
+        public static void RefreshTagCache()
+        {
+            _cachedAllTags = null;
+        }
+
         /// <summary>
         /// Gets the selected tags in the TagMask
         /// </summary>
@@ -133,7 +149,7 @@ namespace EasyTags
         /// <returns>An array of strings for selected tags</returns>
         public static string[] GetSelectedTags(int mask)
         {
-            string[] allTags = UnityEditorInternal.InternalEditorUtility.tags;
+            string[] allTags = AllTags;
             List<string> selectedTagsList = new();
 
             for (int i = 0; i < allTags.Length; i++)
@@ -216,7 +232,12 @@ namespace EasyTags
         {
             if (_objectsByExactMask.TryGetValue(mask, out HashSet<GameObject> gameObjects))
             {
-                return gameObjects.First();
+                // Grab the first element without pulling in System.Linq just for this one call,
+                // and without throwing if the set were ever empty (foreach simply won't execute).
+                foreach (GameObject obj in gameObjects)
+                {
+                    return obj;
+                }
             }
 
             return null;
@@ -305,17 +326,15 @@ namespace EasyTags
         /// <returns>True if the game object has any of the tags in the mask</returns>
         public static bool CompareTag(GameObject gameObject, int mask)
         {
-            string[] tags = GetSelectedTags(mask);
-            string[] tags2 = gameObject.GetComponent<MultipleTags>().GetSelectedTags();
-            foreach (string tag in tags)
+            if (!gameObject.TryGetComponent<MultipleTags>(out var multipleTags))
             {
-                foreach (string tag2 in tags2)
-                {
-                    if (tag.Equals(tag2))
-                        return true;
-                }
+                Debug.LogWarning("GameObject does not have MultipleTags component.");
+                return false;
             }
-            return false;
+
+            // HashSet.Overlaps is O(n) instead of the previous nested-loop O(n*m) comparison
+            HashSet<string> maskTags = new HashSet<string>(GetSelectedTags(mask));
+            return maskTags.Overlaps(multipleTags.GetSelectedTags());
         }
 
         /// <summary>
@@ -337,30 +356,17 @@ namespace EasyTags
         /// <returns>True if the game object has all the tags in the mask</returns>
         public static bool CompareTags(GameObject gameObject, int mask)
         {
-            string[] maskTags = GetSelectedTags(mask); // Tags from the mask
-
             if (!gameObject.TryGetComponent<MultipleTags>(out var multipleTags))
             {
                 Debug.LogWarning("GameObject does not have MultipleTags component.");
                 return false;
             }
-            string[] gameObjectTags = multipleTags.GetSelectedTags();
 
-            foreach (string tag in maskTags)
-            {
-                bool found = false;
-                foreach (string objTag in gameObjectTags)
-                {
-                    if (tag.Equals(objTag))
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found)
-                    return false;
-            }
-            return true;
+            HashSet<string> maskTags = new HashSet<string>(GetSelectedTags(mask)); // Tags from the mask
+            HashSet<string> gameObjectTags = new HashSet<string>(multipleTags.GetSelectedTags());
+
+            // True only if every tag in the mask is also present on the game object
+            return maskTags.IsSubsetOf(gameObjectTags);
         }
 
         /// <summary>
@@ -382,18 +388,14 @@ namespace EasyTags
         /// <returns>True if both game objects has any matching tags</returns>
         public static bool CompareGameObjectsTag(GameObject obj1, GameObject obj2)
         {
-            string[] tags1 = obj1.GetComponent<MultipleTags>().GetSelectedTags();
-            string[] tags2 = obj2.GetComponent<MultipleTags>().GetSelectedTags();
-
-            foreach (string tag1 in tags1)
+            if (!obj1.TryGetComponent<MultipleTags>(out var tags1) || !obj2.TryGetComponent<MultipleTags>(out var tags2))
             {
-                foreach (string tag2 in tags2)
-                {
-                    if (tag1.Equals(tag2))
-                        return true;
-                }
+                Debug.LogWarning("One or both GameObjects do not have a MultipleTags component.");
+                return false;
             }
-            return false;
+
+            HashSet<string> tagSet1 = new HashSet<string>(tags1.GetSelectedTags());
+            return tagSet1.Overlaps(tags2.GetSelectedTags());
         }
 
         /// <summary>
@@ -404,16 +406,16 @@ namespace EasyTags
         /// <returns>True if both game objects has all matching tags</returns>
         public static bool CompareGameObjectsTags(GameObject obj1, GameObject obj2)
         {
-            TagMask tagMask1 = obj1.GetComponent<MultipleTags>().TagMask;
-            TagMask tagMask2 = obj2.GetComponent<MultipleTags>().TagMask;
-            bool obj1HasAll = false;
-            bool obj2HasAll = false;
+            if (!obj1.TryGetComponent<MultipleTags>(out var multipleTags1) || !obj2.TryGetComponent<MultipleTags>(out var multipleTags2))
+            {
+                Debug.LogWarning("One or both GameObjects do not have a MultipleTags component.");
+                return false;
+            }
 
-            if (CompareTags(obj1, tagMask2)) obj1HasAll = true;
-            if (CompareTags(obj2, tagMask1)) obj2HasAll = true;
+            bool obj1HasAll = CompareTags(obj1, multipleTags2.TagMask);
+            bool obj2HasAll = CompareTags(obj2, multipleTags1.TagMask);
 
-            if (obj1HasAll && obj2HasAll) return true;
-            else return false;
+            return obj1HasAll && obj2HasAll;
         }
 
         #endregion
@@ -425,13 +427,18 @@ namespace EasyTags
         // Check if any two elements has matching TagMasks.
         // Check if all elements has matching TagMasks.
         // They return a boolean value.
+        //
+        // These accept IEnumerable<GameObject> / ICollection<GameObject> instead of separate
+        // GameObject[] and List<GameObject> overloads. Both arrays and Lists satisfy these
+        // interfaces, so every existing call site (array or list) keeps compiling and working
+        // exactly as before -- this just removes the duplicated method bodies and duplicated docs.
 
         /// <summary>
-        /// Check if any two GameObjects in the array have matching TagMask
+        /// Check if any two GameObjects in the collection have matching TagMask
         /// </summary>
-        /// <param name="gameObjects">Array of game objects to compare tags with</param>
+        /// <param name="gameObjects">Collection of game objects to compare tags with</param>
         /// <returns>True if any two game objects have any TagMask matching</returns>
-        public static bool HasAnyMatchingTags(GameObject[] gameObjects)
+        public static bool HasAnyMatchingTags(IEnumerable<GameObject> gameObjects)
         {
             HashSet<int> seenMasks = new HashSet<int>();
 
@@ -449,11 +456,11 @@ namespace EasyTags
         }
 
         /// <summary>
-        /// Check if any two GameObjects in the array have matching tags in their TagMask
+        /// Check if any two GameObjects in the collection have matching tags in their TagMask
         /// </summary>
-        /// <param name="gameObjects">Array of game objects to compare tags with</param>
+        /// <param name="gameObjects">Collection of game objects to compare tags with</param>
         /// <returns>True if any two game objects have any tags matching in their TagMask</returns>
-        public static bool HasAnyMatchingTag(GameObject[] gameObjects)
+        public static bool HasAnyMatchingTag(IEnumerable<GameObject> gameObjects)
         {
             HashSet<string> seenTags = new HashSet<string>();
 
@@ -476,96 +483,9 @@ namespace EasyTags
         /// <summary>
         /// Check if all elements have all matching TagMask
         /// </summary>
-        /// <param name="gameObjects">Array of game objects to compare tags with</param>
+        /// <param name="gameObjects">Collection of game objects to compare tags with</param>
         /// <returns>True if all game objects have all matching tags in their TagMask</returns>
-        public static bool HasAllMatching(GameObject[] gameObjects)
-        {
-            if (gameObjects == null || gameObjects.Length == 0)
-                return false;
-
-            HashSet<string> firstTags = null;
-
-            foreach (var gameObject in gameObjects)
-            {
-                if (!gameObject.TryGetComponent<MultipleTags>(out var tags))
-                    return false;
-
-                if (firstTags == null)
-                {
-                    firstTags = new HashSet<string>(tags.GetSelectedTags());
-                }
-                else
-                {
-                    bool hasMatchingTag = false;
-                    foreach (var tag in tags.GetSelectedTags())
-                    {
-                        if (firstTags.Contains(tag))
-                        {
-                            hasMatchingTag = true;
-                            break;
-                        }
-                    }
-
-                    if (!hasMatchingTag)
-                        return false;
-                }
-            }
-            return true;
-        }
-
-        /// <summary>
-        /// Check if any two GameObjects in the list have matching TagMask
-        /// </summary>
-        /// <param name="gameObjects">List of game objects to compare tags with</param>
-        /// <returns>True if any two game objects have matching TagMask</returns>
-        public static bool HasAnyMatchingTags(List<GameObject> gameObjects)
-        {
-            HashSet<int> seenMasks = new HashSet<int>();
-
-            foreach (var gameObject in gameObjects)
-            {
-                if (gameObject.TryGetComponent<MultipleTags>(out var tags))
-                {
-                    if (seenMasks.Contains(tags.TagMask.Mask))
-                        return true;
-
-                    seenMasks.Add(tags.TagMask.Mask);
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Check if any two GameObjects in the list have matching tags in their TagMask
-        /// </summary>
-        /// <param name="gameObjects">List of game objects to compare tags with</param>
-        /// <returns>Returns true if any two game objects have any matching tags in their TagMask</returns>
-        public static bool HasAnyMatchingTag(List<GameObject> gameObjects)
-        {
-            HashSet<string> seenTags = new HashSet<string>();
-
-            foreach (var gameObject in gameObjects)
-            {
-                if (gameObject.TryGetComponent<MultipleTags>(out var tags))
-                {
-                    foreach (var tag in tags.GetSelectedTags())
-                    {
-                        if (seenTags.Contains(tag))
-                            return true;
-
-                        seenTags.Add(tag);
-                    }
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Check if all elements in the list have all matching TagMasks
-        /// </summary>
-        /// <param name="gameObjects">List of game objects to compare tags with</param>
-        /// <returns>True if all game objects have all mathching tags in their TagMask</returns>
-        public static bool HasAllMatching(List<GameObject> gameObjects)
+        public static bool HasAllMatching(ICollection<GameObject> gameObjects)
         {
             if (gameObjects == null || gameObjects.Count == 0)
                 return false;
@@ -603,7 +523,7 @@ namespace EasyTags
         #endregion
 
         #region Find Transforms Functions
-        // These fucntions find transforms based on their selected tags on their MultipleTags component.
+        // These functions find transforms based on their selected tags on their MultipleTags component.
         // They require game objects with MultipleTags component attached.
         // They return a single or an array of transforms.
 
@@ -697,7 +617,7 @@ namespace EasyTags
         /// <summary>
         /// Find the first GameObject with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>A game object with any tag in the mask</returns>
         public static GameObject FindGameObjectWithoutMultipleTags(int mask)
         {
@@ -713,7 +633,7 @@ namespace EasyTags
         /// <summary>
         /// Find the first GameObject with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>A game object with any tag in the mask</returns>
         public static GameObject FindGameObjectWithoutMultipleTags(TagMask mask)
         {
@@ -723,7 +643,7 @@ namespace EasyTags
         /// <summary>
         /// Find all of the GameObjects with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>An array of game objects with any tag in the mask</returns>
         public static GameObject[] FindGameObjectsWithoutMultipleTags(int mask)
         {
@@ -746,7 +666,7 @@ namespace EasyTags
         /// <summary>
         /// Find all of the GameObjects with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>An array of game objects with any tag in the mask</returns>
         public static GameObject[] FindGameObjectsWithoutMultipleTags(TagMask mask)
         {
@@ -763,7 +683,7 @@ namespace EasyTags
         /// <summary>
         /// Find the first Transform with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>A transform with any tag in the mask</returns>
         public static Transform FindWithoutMultipleTags(int mask)
         {
@@ -779,7 +699,7 @@ namespace EasyTags
         /// <summary>
         /// Find the first Transform with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>A transform with any tag in the mask</returns>
         public static Transform FindWithoutMultipleTags(TagMask mask)
         {
@@ -789,7 +709,7 @@ namespace EasyTags
         /// <summary>
         /// Find all of the Transform with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>An array of transforms with any tag in the mask</returns>
         public static Transform[] FindAllWithoutMulipleTags(int mask)
         {
@@ -813,7 +733,7 @@ namespace EasyTags
         /// <summary>
         /// Find all of the Transforms with any tag in the mask without a MultipleTags attached
         /// </summary>
-        /// <param name="mask">The mask to search the game objcects with</param>
+        /// <param name="mask">The mask to search the game objects with</param>
         /// <returns>An array of game objects with any tag in the mask</returns>
         public static Transform[] FindAllWithoutMulipleTags(TagMask mask)
         {
@@ -827,44 +747,35 @@ namespace EasyTags
         // Add a single or more than one tags to a mask.
         // Delete a single or more than one tags from a mask.
         // Toggle a single or more than one tags in the mask.
+        //
+        // The "multiple tags" overloads accept IEnumerable<string>, so both string[] and
+        // List<string> (or any other collection of tag names) work without needing a
+        // separate overload for each collection type.
 
         /// <summary>
         /// Add a tag to a TagMask and return the resulting TagMask
         /// </summary>
         /// <param name="tagMask">The TagMask to be updated</param>
-        /// <param name="tag">The tag to be added/param>
+        /// <param name="tag">The tag to be added</param>
         /// <returns>The updated TagMask</returns>
         public static TagMask AddTagToMask(TagMask tagMask, string tag)
         {
-            int tagIndex = Array.IndexOf(UnityEditorInternal.InternalEditorUtility.tags, tag);
+            int tagIndex = Array.IndexOf(AllTags, tag);
             if (tagIndex != -1)
                 tagMask.Mask |= (1 << tagIndex);
             return tagMask;
         }
 
         /// <summary>
-        /// Add an array of tags to a TagMask and return the resulting TagMask
+        /// Add a collection of tags to a TagMask and return the resulting TagMask
         /// </summary>
         /// <param name="tagMask">The TagMask to be updated</param>
-        /// <param name="tags">The array of tags to be added</param>
+        /// <param name="tags">The collection of tags to be added</param>
         /// <returns>The updated TagMask</returns>
-        public static TagMask AddTagsToMask(TagMask tagMask, string[] tags)
-        {
-            for (int i = 0; i < tags.Length; i++)
-                AddTagToMask(tagMask, tags[i]);
-            return tagMask;
-        }
-
-        /// <summary>
-        /// Add a list of tags to a TagMask and return the resulting TagMask
-        /// </summary>
-        /// <param name="tagMask">The TagMask to be updated</param>
-        /// <param name="tags">The list of tags to be added</param>
-        /// <returns>The updated TagMask</returns>
-        public static TagMask AddTagsToMask(TagMask tagMask, List<string> tags)
+        public static TagMask AddTagsToMask(TagMask tagMask, IEnumerable<string> tags)
         {
             foreach (string tag in tags)
-                AddTagToMask(tagMask, tag);
+                tagMask = AddTagToMask(tagMask, tag);
             return tagMask;
         }
 
@@ -876,35 +787,22 @@ namespace EasyTags
         /// <returns>The updated TagMask</returns>
         public static TagMask RemoveTagFromMask(TagMask tagMask, string tag)
         {
-            int tagIndex = Array.IndexOf(UnityEditorInternal.InternalEditorUtility.tags, tag);
+            int tagIndex = Array.IndexOf(AllTags, tag);
             if (tagIndex != -1)
                 tagMask.Mask &= ~(1 << tagIndex);
             return tagMask;
         }
 
         /// <summary>
-        /// Remove an array of tags to a TagMask and return the resulting TagMask
+        /// Remove a collection of tags from a TagMask and return the resulting TagMask
         /// </summary>
         /// <param name="tagMask">The TagMask to be updated</param>
-        /// <param name="tags">The array of tags to be removed</param>
+        /// <param name="tags">The collection of tags to be removed</param>
         /// <returns>The updated TagMask</returns>
-        public static TagMask RemoveTagsFromMask(TagMask tagMask, string[] tags)
-        {
-            for (int i = 0; i < tags.Length; i++)
-                RemoveTagFromMask(tagMask, tags[i]);
-            return tagMask;
-        }
-
-        /// <summary>
-        /// Remove a list of tags to a TagMask and return the resulting TagMask
-        /// </summary>
-        /// <param name="tagMask">The TagMask to be updated</param>
-        /// <param name="tags">The list of tags to be removed</param>
-        /// <returns>The updated TagMask</returns>
-        public static TagMask RemoveTagsFromMask(TagMask tagMask, List<string> tags)
+        public static TagMask RemoveTagsFromMask(TagMask tagMask, IEnumerable<string> tags)
         {
             foreach (string tag in tags)
-                RemoveTagFromMask(tagMask, tag);
+                tagMask = RemoveTagFromMask(tagMask, tag);
             return tagMask;
         }
 
@@ -916,35 +814,22 @@ namespace EasyTags
         /// <returns>The updated TagMask</returns>
         public static TagMask ToggleTag(TagMask tagMask, string tag)
         {
-            int tagIndex = Array.IndexOf(UnityEditorInternal.InternalEditorUtility.tags, tag);
+            int tagIndex = Array.IndexOf(AllTags, tag);
             if (tagIndex != -1)
                 tagMask.Mask ^= (1 << tagIndex);
             return tagMask;
         }
 
         /// <summary>
-        /// Toggle an array of tags in a TagMask and return the resulting TagMask
+        /// Toggle a collection of tags in a TagMask and return the resulting TagMask
         /// </summary>
         /// <param name="tagMask">The TagMask to be updated</param>
-        /// <param name="tags">The array of tags to be toggled</param>
+        /// <param name="tags">The collection of tags to be toggled</param>
         /// <returns>The updated TagMask</returns>
-        public static TagMask ToggleTags(TagMask tagMask, string[] tags)
-        {
-            for (int i = 0; i < tags.Length; i++)
-                ToggleTag(tagMask, tags[i]);
-            return tagMask;
-        }
-
-        /// <summary>
-        /// Toggle a list of tags in a TagMask and return the resulting TagMask
-        /// </summary>
-        /// <param name="tagMask">The TagMask to be updated</param>
-        /// <param name="tags">The list of tags to be toggled</param>
-        /// <returns>The updated TagMask</returns>
-        public static TagMask ToggleTags(TagMask tagMask, List<string> tags)
+        public static TagMask ToggleTags(TagMask tagMask, IEnumerable<string> tags)
         {
             foreach (string tag in tags)
-                ToggleTag(tagMask, tag);
+                tagMask = ToggleTag(tagMask, tag);
             return tagMask;
         }
 
