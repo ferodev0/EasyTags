@@ -11,7 +11,7 @@ using UnityEngine.SceneManagement;
  * 
  * @author (FeroDev)
  * @version 1.0
- * @date 26/06/2024
+ * @date 05/09/2026
  */
 
 namespace EasyTags
