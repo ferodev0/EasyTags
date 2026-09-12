@@ -26,7 +26,7 @@ namespace EasyTags
         private const string ImagesFolder = "Assets/FeroDev/Easy Tags/Icons/Images";
         private const string FullDocumentationPath = "Assets/FeroDev/Easy Tags/Documentation/Documentation.pdf";
 
-        private static readonly Color AccentColor = new Color(0.09f, 0.47f, 0.77f);
+        private static readonly Color AccentColor = Color.cyan; // matches TagManagerWindow's cyan header/tag accent
 
         private Vector2 _scrollPosition;
         private GUIStyle _titleStyle;
@@ -35,6 +35,7 @@ namespace EasyTags
         private GUIStyle _bodyStyle;
         private GUIStyle _bulletStyle;
         private GUIStyle _codeStyle;
+        private GUIStyle _buttonStyle;
         private bool _stylesInitialized;
 
         private readonly Dictionary<string, bool> _foldouts = new Dictionary<string, bool>();
@@ -64,6 +65,7 @@ namespace EasyTags
                 wordWrap = true,
                 margin = new RectOffset(10, 10, 14, 12)
             };
+            _titleStyle.normal.textColor = AccentColor; // brand accent, matching TagManagerWindow's header color
 
             _sectionHeaderStyle = new GUIStyle(EditorStyles.foldout)
             {
@@ -105,6 +107,15 @@ namespace EasyTags
                 fontSize = 13,
                 font = GetMonospaceFont()
             };
+
+            // Mirrors TagManagerWindow's neutral buttonStyle: same skin, padding, and margin,
+            // so buttons across both Easy Tags windows read as part of the same toolset.
+            _buttonStyle = new GUIStyle(GUI.skin.button);
+            _buttonStyle.normal.textColor = Color.white;
+            _buttonStyle.hover.textColor = Color.white;
+            _buttonStyle.active.textColor = Color.white;
+            _buttonStyle.padding = new RectOffset(10, 10, 3, 3);
+            _buttonStyle.margin = new RectOffset(10, 10, 0, 0);
 
             _stylesInitialized = true;
         }
@@ -393,7 +404,7 @@ namespace EasyTags
 
             if (!string.IsNullOrEmpty(FullDocumentationPath) && File.Exists(FullDocumentationPath))
             {
-                if (GUILayout.Button("Open PDF Documentation"))
+                if (GUILayout.Button("Open PDF Documentation", _buttonStyle))
                 {
                     EditorUtility.OpenWithDefaultApp(FullDocumentationPath);
                 }
@@ -471,7 +482,7 @@ namespace EasyTags
         {
             EditorGUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Copy", EditorStyles.miniButton, GUILayout.Width(50)))
+            if (GUILayout.Button("Copy", _buttonStyle, GUILayout.Width(70)))
             {
                 GUIUtility.systemCopyBuffer = code;
                 ShowNotification(new GUIContent("Copied to clipboard"));
