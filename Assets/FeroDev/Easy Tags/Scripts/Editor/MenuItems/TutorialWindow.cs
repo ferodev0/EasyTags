@@ -24,7 +24,8 @@ namespace EasyTags
     {
         // Paths to some sources
         private const string ImagesFolder = "Assets/FeroDev/Easy Tags/Icons/Images";
-        private const string FullDocumentationPath = "Assets/FeroDev/Easy Tags/Documentation/Documentation.pdf";
+        private const string PDFDocumentationPath = "Assets/FeroDev/Easy Tags/Documentation/Documentation.pdf";
+        private const string OnlineDocumentationLink = "https://ferodev0.github.io/EasyTagsDocumentation/";
 
         private static readonly Color AccentColor = Color.cyan; // matches TagManagerWindow's cyan header/tag accent
 
@@ -40,7 +41,7 @@ namespace EasyTags
 
         private readonly Dictionary<string, bool> _foldouts = new Dictionary<string, bool>();
 
-        [MenuItem("Tools/Easy Tags/Tutorial")]
+        [MenuItem("Tools/Easy Tags/Documentation")]
         public static void ShowWindow()
         {
             // To setup and show the window
@@ -402,11 +403,22 @@ namespace EasyTags
         {
             EditorGUILayout.Space(4);
 
-            if (!string.IsNullOrEmpty(FullDocumentationPath) && File.Exists(FullDocumentationPath))
+            if (!string.IsNullOrEmpty(PDFDocumentationPath) && File.Exists(PDFDocumentationPath))
             {
                 if (GUILayout.Button("Open PDF Documentation", _buttonStyle))
                 {
-                    EditorUtility.OpenWithDefaultApp(FullDocumentationPath);
+                    EditorUtility.OpenWithDefaultApp(PDFDocumentationPath);
+                }
+                EditorGUILayout.Space(4);
+            }
+
+            EditorGUILayout.Space(4);
+
+            if (!string.IsNullOrEmpty(OnlineDocumentationLink))
+            {
+                if (GUILayout.Button("Open Online Documentation", _buttonStyle))
+                {
+                    Application.OpenURL(OnlineDocumentationLink);
                 }
                 EditorGUILayout.Space(4);
             }

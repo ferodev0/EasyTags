@@ -115,7 +115,7 @@ namespace EasyTags
         }
 
         // Creates the Tags class
-        [MenuItem("Tools/Easy Tags/Generate Accessible Tags", false, 30)]
+        [MenuItem("Tools/Easy Tags/Generate Accessible Tags", false, 50)]
         public static void GenerateTagsClass()
         {
             string[] tags = UnityEditorInternal.InternalEditorUtility.tags;
