@@ -25,7 +25,7 @@ namespace EasyTags
         // Paths to some sources
         private const string ImagesFolder = "Assets/FeroDev/Easy Tags/Icons/Images";
         private const string PDFDocumentationPath = "Assets/FeroDev/Easy Tags/Documentation/Documentation.pdf";
-        private const string OnlineDocumentationLink = "https://ferodev0.github.io/EasyTagsDocumentation/";
+        private const string OnlineDocumentationLink = "https://ferodev0.github.io/easy-tags-documentation/";
 
         private static readonly Color AccentColor = Color.cyan; // matches TagManagerWindow's cyan header/tag accent
 
